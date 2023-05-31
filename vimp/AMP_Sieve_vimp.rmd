@@ -1,0 +1,751 @@
+---
+title: "HVTN 703/704 Sieve Analysis; Variable Importance Analysis"
+output: word_document
+date: '2023-03-13'
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+```{r}
+library(pROC)
+library(SuperLearner)
+library(mgcv)
+library(knitr)
+library(cvAUC)
+
+amp <- read.csv("/Volumes/trials/vaccine/p704/analysis/sieve/adata/amp_sieve_pooled_marks_final_v9.csv")
+amp$gmt80ls_num <- amp$gmt80ls
+amp$gmt80ls_num[amp$gmt80ls == ">100"] <- 100
+amp$gmt80ls_num <- as.numeric(amp$gmt80ls_num)
+
+amp$tx_bin <- ifelse(amp$tx_pool == "T1+T2", 1, 0)
+amp703 <- subset(amp, protocol == "HVTN 703" & !is.na(parscore1.ls) & hiv1event == 1)
+amp704 <- subset(amp, protocol == "HVTN 704" & !is.na(parscore1.ls) & hiv1event == 1)
+
+# Treatment variables: tx (trichotomous treatment); tx_pool (dichotomous treatment)
+# 703 scores: parscore1.ls, parscore2.ls, epitope.dist.b.ls, 
+#             hdist.zspace.sites.binding.all.ls, gmt80ls
+# 704 scores: parscore1.ls, parscore2.ls, epitope.dist.c.ls,
+#             hdist.zspace.sites.binding.all.ls, gmt80ls
+# 703 location: southAfrica
+# 704 location: southAmerica
+
+```
+
+## Objective 1: Prediction accuracy of models to predict TX assignment using a single including all Env AA feature
+
+```{r Objective1-703}
+set.seed(300)
+n <- nrow(amp703)
+no.folds <- 5
+folds <- sample(1:no.folds, n, replace = TRUE) 
+fit703.parscore1.aucs <- numeric(5)
+
+# Parscore 1
+testfit703.parscore1 <- numeric(n)
+for(j in 1:no.folds) {
+  train.dat <- amp703[folds != j,]
+  test.dat <- amp703[folds == j,]
+  
+  trainfit703.parscore1 <- mgcv::gam(tx_bin ~ s(parscore1.ls) + southAfrica,
+                                 family = binomial, data = train.dat,
+                                 method = "NCV")
+  fitted703.parscore1 <- predict(trainfit703.parscore1, newdata = test.dat,
+                                 type = "response")
+  
+  testfit703.parscore1[folds == j] <- fitted703.parscore1
+}
+
+result <- ci.cvAUC(labels = amp703$tx_bin, predictions = testfit703.parscore1, folds = folds)
+fit703.parscore1.aucCI <- signif(c(result$cvAUC, result$ci), digits = 3)
+
+# Parscore 2
+testfit703.parscore2 <- numeric(n)
+for(j in 1:no.folds) {
+  train.dat <- amp703[folds != j,]
+  test.dat <- amp703[folds == j,]
+  
+  trainfit703.parscore2 <- mgcv::gam(tx_bin ~ s(parscore2.ls) + southAfrica,
+                                     family = binomial, data = train.dat,
+                                     method = "NCV")
+  fitted703.parscore2 <- predict(trainfit703.parscore2, newdata = test.dat,
+                                 type = "response")
+  
+  testfit703.parscore2[folds == j] <- fitted703.parscore2
+}
+
+result <- ci.cvAUC(labels = amp703$tx_bin, predictions = testfit703.parscore2, folds = folds)
+fit703.parscore2.aucCI <- signif(c(result$cvAUC, result$ci), digits = 3)
+
+# Epitope dist
+testfit703.epitope <- numeric(n)
+for(j in 1:no.folds) {
+  train.dat <- amp703[folds != j,]
+  test.dat <- amp703[folds == j,]
+  
+  trainfit703.epitope <- mgcv::gam(tx_bin ~ s(epitope.dist.b.ls) + southAfrica,
+                                     family = binomial, data = train.dat,
+                                   method = "NCV")
+  fitted703.epitope <- predict(trainfit703.epitope, newdata = test.dat,
+                               type = "response")
+  
+  testfit703.epitope[folds == j] <- fitted703.epitope
+}
+
+result <- ci.cvAUC(labels = amp703$tx_bin, predictions = testfit703.epitope, folds = folds)
+fit703.epitope.aucCI <- signif(c(result$cvAUC, result$ci), digits = 3)
+
+# Hamming dist
+testfit703.hdist <- numeric(n)
+for(j in 1:no.folds) {
+  train.dat <- amp703[folds != j,]
+  test.dat <- amp703[folds == j,]
+  
+  trainfit703.hdist <- mgcv::gam(tx_bin ~ s(hdist.zspace.sites.binding.all.ls) + southAfrica,
+                                     family = binomial, data = train.dat,
+                                 method = "NCV")
+  fitted703.hdist <- predict(trainfit703.hdist, newdata = test.dat,
+                             type = "response")
+  
+  testfit703.hdist[folds == j] <- fitted703.hdist
+}
+
+result <- ci.cvAUC(labels = amp703$tx_bin, predictions = testfit703.hdist, folds = folds)
+fit703.hdist.aucCI <- signif(c(result$cvAUC, result$ci), digits = 3)
+
+# Raw IC80
+testfit703.gmt80 <- numeric(n)
+for(j in 1:no.folds) {
+  train.dat <- amp703[folds != j,]
+  test.dat <- amp703[folds == j,]
+  
+  trainfit703.gmt80 <- mgcv::gam(tx_bin ~ s(gmt80ls_num) + southAfrica,
+                                     family = binomial, data = train.dat,
+                                 method = "NCV")
+  fitted703.gmt80 <- predict(trainfit703.gmt80, newdata = test.dat,
+                             type = "response")
+  
+  testfit703.gmt80[folds == j] <- fitted703.gmt80
+}
+
+result <- ci.cvAUC(labels = amp703$tx_bin[!is.na(amp703$gmt80ls)],
+                   predictions = testfit703.gmt80[!is.na(amp703$gmt80ls)],
+                   folds = folds[!is.na(amp703$gmt80ls)])
+fit703.gmt80.aucCI <- signif(c(result$cvAUC, result$ci), digits = 3)
+```
+
+```{r Objective1-704}
+set.seed(300)
+n <- nrow(amp704)
+no.folds <- 5
+folds <- sample(1:no.folds, n, replace = TRUE) 
+fit704.parscore1.aucs <- numeric(5)
+
+# Parscore 1
+testfit704.parscore1 <- numeric(n)
+for(j in 1:no.folds) {
+  train.dat <- amp704[folds != j,]
+  test.dat <- amp704[folds == j,]
+  
+  trainfit704.parscore1 <- mgcv::gam(tx_bin ~ s(parscore1.ls) + southAmerica,
+                                 family = binomial, data = train.dat,
+                                 method = "NCV")
+  fitted704.parscore1 <- predict(trainfit704.parscore1, newdata = test.dat,
+                                 type = "response")
+  
+  testfit704.parscore1[folds == j] <- fitted704.parscore1
+}
+
+result <- ci.cvAUC(labels = amp704$tx_bin, predictions = testfit704.parscore1, folds = folds)
+fit704.parscore1.aucCI <- signif(c(result$cvAUC, result$ci), digits = 3)
+
+# Parscore 2
+testfit704.parscore2 <- numeric(n)
+for(j in 1:no.folds) {
+  train.dat <- amp704[folds != j,]
+  test.dat <- amp704[folds == j,]
+  
+  trainfit704.parscore2 <- mgcv::gam(tx_bin ~ s(parscore2.ls) + southAmerica,
+                                     family = binomial, data = train.dat,
+                                     method = "NCV")
+  fitted704.parscore2 <- predict(trainfit704.parscore2, newdata = test.dat,
+                                 type = "response")
+  
+  testfit704.parscore2[folds == j] <- fitted704.parscore2
+}
+
+result <- ci.cvAUC(labels = amp704$tx_bin, predictions = testfit704.parscore2, folds = folds)
+fit704.parscore2.aucCI <- signif(c(result$cvAUC, result$ci), digits = 3)
+
+# Epitope dist
+testfit704.epitope <- numeric(n)
+for(j in 1:no.folds) {
+  train.dat <- amp704[folds != j,]
+  test.dat <- amp704[folds == j,]
+  
+  trainfit704.epitope <- mgcv::gam(tx_bin ~ s(epitope.dist.b.ls) + southAmerica,
+                                     family = binomial, data = train.dat,
+                                   method = "NCV")
+  fitted704.epitope <- predict(trainfit704.epitope, newdata = test.dat,
+                               type = "response")
+  
+  testfit704.epitope[folds == j] <- fitted704.epitope
+}
+
+result <- ci.cvAUC(labels = amp704$tx_bin, predictions = testfit704.epitope, folds = folds)
+fit704.epitope.aucCI <- signif(c(result$cvAUC, result$ci), digits = 3)
+
+# Hamming dist
+testfit704.hdist <- numeric(n)
+for(j in 1:no.folds) {
+  train.dat <- amp704[folds != j,]
+  test.dat <- amp704[folds == j,]
+  
+  trainfit704.hdist <- mgcv::gam(tx_bin ~ s(hdist.zspace.sites.binding.all.ls) + southAmerica,
+                                     family = binomial, data = train.dat,
+                                 method = "NCV")
+  fitted704.hdist <- predict(trainfit704.hdist, newdata = test.dat,
+                             type = "response")
+  
+  testfit704.hdist[folds == j] <- fitted704.hdist
+}
+
+result <- ci.cvAUC(labels = amp704$tx_bin, predictions = testfit704.hdist, folds = folds)
+fit704.hdist.aucCI <- signif(c(result$cvAUC, result$ci), digits = 3)
+
+# gmt 80
+testfit704.gmt80 <- numeric(n)
+for(j in 1:no.folds) {
+  train.dat <- amp704[folds != j,]
+  test.dat <- amp704[folds == j,]
+  
+  trainfit704.gmt80 <- mgcv::gam(tx_bin ~ s(gmt80ls_num) + southAmerica,
+                                     family = binomial, data = train.dat,
+                                 method = "NCV")
+  fitted704.gmt80 <- predict(trainfit704.gmt80, newdata = test.dat,
+                             type = "response")
+  
+  testfit704.gmt80[folds == j] <- fitted704.gmt80
+}
+
+result <- ci.cvAUC(labels = amp704$tx_bin[!is.na(amp704$gmt80ls)],
+                   predictions = testfit704.gmt80[!is.na(amp704$gmt80ls)],
+                   folds = folds[!is.na(amp704$gmt80ls)])
+fit704.gmt80.aucCI <- signif(c(result$cvAUC, result$ci), digits = 3)
+```
+
+```{r}
+tab <- matrix(nrow = 5, ncol = 3)
+tab[,1] <- c("PAR Score (logit)", "PAR Score (pred IC 80)", "Epitope Dist",
+             "Hamming Dist", "Raw IC 80")
+tab[1,2] <- paste0(fit703.parscore1.aucCI[1], " (", fit703.parscore1.aucCI[2],
+                   ", ", fit703.parscore1.aucCI[3], ")")
+tab[2,2] <- paste0(fit703.parscore2.aucCI[1], " (", fit703.parscore2.aucCI[2],
+                   ", ", fit703.parscore2.aucCI[3], ")")
+tab[3,2] <- paste0(fit703.epitope.aucCI[1], " (", fit703.epitope.aucCI[2],
+                   ", ", fit703.epitope.aucCI[3], ")")
+tab[4,2] <- paste0(fit703.hdist.aucCI[1], " (", fit703.hdist.aucCI[2],
+                   ", ", fit703.hdist.aucCI[3], ")")
+tab[5,2] <- paste0(fit703.gmt80.aucCI[1], " (", fit703.gmt80.aucCI[2],
+                   ", ", fit703.gmt80.aucCI[3], ")")
+
+tab[1,3] <- paste0(fit704.parscore1.aucCI[1], " (", fit704.parscore1.aucCI[2],
+                   ", ", fit704.parscore1.aucCI[3], ")")
+tab[2,3] <- paste0(fit704.parscore2.aucCI[1], " (", fit704.parscore2.aucCI[2],
+                   ", ", fit704.parscore2.aucCI[3], ")")
+tab[3,3] <- paste0(fit704.epitope.aucCI[1], " (", fit704.epitope.aucCI[2],
+                   ", ", fit704.epitope.aucCI[3], ")")
+tab[4,3] <- paste0(fit704.hdist.aucCI[1], " (", fit704.hdist.aucCI[2],
+                   ", ", fit704.hdist.aucCI[3], ")")
+tab[5,3] <- paste0(fit704.gmt80.aucCI[1], " (", fit704.gmt80.aucCI[2],
+                   ", ", fit704.gmt80.aucCI[3], ")")
+
+colnames(tab) <- c("Env AA Characteristic", "HVTN 703", "HVTN 704")
+
+
+kable(tab)
+```
+
+## Ojective 2A: Prediction accuracy of generalized model including all Env AA features (excludng raw IC80)
+
+```{r Objective2A-703}
+set.seed(300)
+
+n <- nrow(amp703)
+no.folds <- 5
+folds <- sample(1:no.folds, n, replace = TRUE) 
+fit703.parscore1.aucs <- numeric(5)
+
+# with gmt80
+testfit703.all <- numeric(n)
+for(j in 1:no.folds) {
+  train.dat <- amp703[folds != j,]
+  test.dat <- amp703[folds == j,]
+  
+  trainfit703.all <- mgcv::gam(tx_bin ~ s(parscore1.ls) + s(parscore2.ls) + s(epitope.dist.b.ls) +
+                                        s(hdist.zspace.sites.binding.all.ls) + southAfrica,
+                                family = binomial, data = train.dat, method = "NCV")
+  fitted703.all <- predict(trainfit703.all, newdata = test.dat, type = "response")
+  
+  testfit703.all[folds == j] <- fitted703.all
+}
+
+result <- ci.cvAUC(labels = amp703$tx_bin, predictions = testfit703.all, folds = folds)
+fit703.all.aucCI <- signif(c(result$cvAUC, result$ci), digits = 3)
+```
+
+```{r Objective2A-704}
+set.seed(300)
+
+n <- nrow(amp704)
+no.folds <- 5
+folds <- sample(1:no.folds, n, replace = TRUE) 
+fit704.parscore1.aucs <- numeric(5)
+
+
+testfit704.all <- numeric(n)
+for(j in 1:no.folds) {
+  train.dat <- amp704[folds != j,]
+  test.dat <- amp704[folds == j,]
+  
+  trainfit704.all <- mgcv::gam(tx_bin ~ s(parscore1.ls) + s(parscore2.ls) + s(epitope.dist.b.ls) +
+                                        s(hdist.zspace.sites.binding.all.ls) + southAmerica,
+                                family = binomial, data = train.dat, method = "NCV")
+  fitted704.all <- predict(trainfit704.all, newdata = test.dat, type = "response")
+  
+  testfit704.all[folds == j] <- fitted704.all
+}
+
+result <- ci.cvAUC(labels = amp704$tx_bin, predictions = testfit704.all, folds = folds)
+fit704.all.aucCI <- signif(c(result$cvAUC, result$ci), digits = 3)
+```
+
+```{r Objective2A-results}
+tab <- matrix(nrow = 1, ncol = 3)
+tab[1,1] <- c("Full Model (no gmt80)")
+
+tab[1,2] <- paste0(fit703.all.aucCI[1], " (", fit703.all.aucCI[2],
+                   ", ", fit703.all.aucCI[3], ")")
+
+
+tab[1,3] <- paste0(fit704.all.aucCI[1], " (", fit704.all.aucCI[2],
+                   ", ", fit704.all.aucCI[3], ")")
+
+colnames(tab) <- c("Env AA Characteristic", "HVTN 703", "HVTN 704")
+
+
+kable(tab)
+```
+
+## Ojective 2B: Prediction accuracy of generalized model including all Env AA features (includng raw IC80)
+
+```{r Objective2B-703}
+set.seed(300)
+
+n <- nrow(amp703)
+no.folds <- 5
+folds <- sample(1:no.folds, n, replace = TRUE) 
+fit703.parscore1.aucs <- numeric(5)
+
+# with gmt80
+testfit703.all <- numeric(n)
+for(j in 1:no.folds) {
+  train.dat <- amp703[folds != j,]
+  test.dat <- amp703[folds == j,]
+  
+  trainfit703.all <- mgcv::gam(tx_bin ~ s(parscore1.ls) + s(parscore2.ls) + s(epitope.dist.b.ls) +
+                                        s(hdist.zspace.sites.binding.all.ls) + s(gmt80ls_num) + southAfrica,
+                                family = binomial, data = train.dat, method = "NCV")
+  fitted703.all <- predict(trainfit703.all, newdata = test.dat, type = "response")
+  
+  testfit703.all[folds == j] <- fitted703.all
+}
+
+result <- ci.cvAUC(labels = amp703$tx_bin[!is.na(amp703$gmt80ls)], 
+                   predictions = testfit703.all[!is.na(amp703$gmt80ls)],
+                   folds = folds[!is.na(amp703$gmt80ls)])
+fit703.allgmt80.aucCI <- signif(c(result$cvAUC, result$ci), digits = 3)
+```
+
+```{r Objective2B-704}
+set.seed(300)
+
+n <- nrow(amp704)
+no.folds <- 5
+folds <- sample(1:no.folds, n, replace = TRUE) 
+fit704.parscore1.aucs <- numeric(5)
+
+# with gmt80
+testfit704.all <- numeric(n)
+for(j in 1:no.folds) {
+  train.dat <- amp704[folds != j,]
+  test.dat <- amp704[folds == j,]
+  
+  trainfit704.all <- mgcv::gam(tx_bin ~ s(parscore1.ls) + s(parscore2.ls) + s(epitope.dist.b.ls) +
+                                        s(hdist.zspace.sites.binding.all.ls) + s(gmt80ls_num) + southAmerica,
+                                family = binomial, data = train.dat, method = "NCV")
+  fitted704.all <- predict(trainfit704.all, newdata = test.dat, type = "response")
+  
+  testfit704.all[folds == j] <- fitted704.all
+}
+
+result <- ci.cvAUC(labels = amp704$tx_bin[!is.na(amp704$gmt80ls)], 
+                   predictions = testfit704.all[!is.na(amp704$gmt80ls)], 
+                   folds = folds[!is.na(amp704$gmt80ls)])
+fit704.allgmt80.aucCI <- signif(c(result$cvAUC, result$ci), digits = 3)
+```
+
+```{r Objective2B-results}
+tab <- matrix(nrow = 1, ncol = 3)
+tab[1,1] <- c("Full Model (with gmt80)")
+
+tab[1,2] <- paste0(fit703.allgmt80.aucCI[1], " (", fit703.allgmt80.aucCI[2],
+                   ", ", fit703.allgmt80.aucCI[3], ")")
+
+
+tab[1,3] <- paste0(fit704.allgmt80.aucCI[1], " (", fit704.allgmt80.aucCI[2],
+                   ", ", fit704.allgmt80.aucCI[3], ")")
+
+colnames(tab) <- c("Env AA Characteristic", "HVTN 703", "HVTN 704")
+
+
+kable(tab)
+```
+
+## Objective 3A: Assessment of conditional dependence of each Env AA feature with TX Assignment (excluding raw IC80)
+
+```{r Objective3A-703}
+fit703.noparscore1 <- mgcv::gam(tx_bin ~ s(parscore2.ls) + s(epitope.dist.c.ls) +
+                                         s(hdist.zspace.sites.binding.all.ls) + southAfrica, 
+                              family = binomial, data = amp703, method = "NCV")$fitted
+fit703.noparscore2 <- mgcv::gam(tx_bin ~ s(parscore1.ls) + s(epitope.dist.c.ls) +
+                                         s(hdist.zspace.sites.binding.all.ls) + southAfrica, 
+                              family = binomial, data = amp703, method = "NCV")$fitted
+fit703.noepitope <- mgcv::gam(tx_bin ~ s(parscore1.ls) + s(parscore2.ls) +
+                                       s(hdist.zspace.sites.binding.all.ls) + southAfrica, 
+                                       family = binomial, data = amp703, method = "NCV")$fitted
+fit703.nohdist <- mgcv::gam(tx_bin ~ s(parscore1.ls) + s(parscore2.ls) + s(epitope.dist.c.ls) +
+                                     southAfrica, 
+                                     family = binomial, data = amp703, method = "NCV")$fitted
+
+parscore1.pred703 <- mgcv::gam(parscore1.ls ~ s(parscore2.ls) + s(epitope.dist.c.ls) +
+                                           s(hdist.zspace.sites.binding.all.ls) + southAfrica, 
+                                           family = gaussian, data = amp703, method = "NCV")$fitted
+
+parscore2.pred703 <- mgcv::gam(parscore2.ls ~ s(parscore1.ls) + s(epitope.dist.c.ls) +
+                                           s(hdist.zspace.sites.binding.all.ls) + southAfrica, 
+                                           family = gaussian, data = amp703, method = "NCV")$fitted
+
+epitope.pred703 <- mgcv::gam(epitope.dist.c.ls ~ s(parscore1.ls) + s(parscore2.ls) +
+                                            s(hdist.zspace.sites.binding.all.ls) + southAfrica, 
+                                            family = gaussian, data = amp703, method = "NCV")$fitted
+
+hdist.pred703 <- mgcv::gam(hdist.zspace.sites.binding.all.ls ~ s(parscore1.ls) + s(parscore2.ls) +
+                                            s(epitope.dist.c.ls) + southAfrica, 
+                                            family = gaussian, data = amp703, method = "NCV")$fitted
+
+
+parscore1.ccor.703 <- cor(amp703$parscore1.ls - parscore1.pred703,  
+                          amp703$tx_bin - fit703.noparscore1)
+parscore2.ccor.703 <- cor(amp703$parscore2.ls - parscore2.pred703,  
+                          amp703$tx_bin - fit703.noparscore2)
+epitope.ccor.703 <- cor(amp703$epitope.dist.c.ls - epitope.pred703,  
+                        amp703$tx_bin - fit703.noepitope)
+hdist.ccor.703 <- cor(amp703$hdist.zspace.sites.binding.all.ls - hdist.pred703,  
+                        amp703$tx_bin - fit703.nohdist)
+
+parscore1.ccor.703.p <- cor.test(amp703$parscore1.ls - parscore1.pred703,  
+                                 amp703$tx_bin - fit703.noparscore1)$p.value
+parscore2.ccor.703.p <- cor.test(amp703$parscore2.ls - parscore2.pred703,  
+                                 amp703$tx_bin - fit703.noparscore2)$p.value
+epitope.ccor.703.p <- cor.test(amp703$epitope.dist.c.ls - epitope.pred703,  
+                               amp703$tx_bin - fit703.noepitope)$p.value
+hdist.ccor.703.p <- cor.test(amp703$hdist.zspace.sites.binding.all.ls - hdist.pred703,  
+                             amp703$tx_bin - fit703.nohdist)$p.value
+```
+
+```{r Objective3A-704}
+fit704.noparscore1 <- mgcv::gam(tx_bin ~ s(parscore2.ls) + s(epitope.dist.c.ls) +
+                                         s(hdist.zspace.sites.binding.all.ls) + southAmerica, 
+                              family = binomial, data = amp704, method = "NCV")$fitted
+fit704.noparscore2 <- mgcv::gam(tx_bin ~ s(parscore1.ls) + s(epitope.dist.c.ls) +
+                                         s(hdist.zspace.sites.binding.all.ls) + southAmerica, 
+                              family = binomial, data = amp704, method = "NCV")$fitted
+fit704.noepitope <- mgcv::gam(tx_bin ~ s(parscore1.ls) + s(parscore2.ls) +
+                                       s(hdist.zspace.sites.binding.all.ls) + southAmerica, 
+                                       family = binomial, data = amp704, method = "NCV")$fitted
+fit704.nohdist <- mgcv::gam(tx_bin ~ s(parscore1.ls) + s(parscore2.ls) + s(epitope.dist.c.ls) +
+                                     southAmerica, 
+                                     family = binomial, data = amp704, method = "NCV")$fitted
+
+parscore1.pred704 <- mgcv::gam(parscore1.ls ~ s(parscore2.ls) + s(epitope.dist.c.ls) +
+                                           s(hdist.zspace.sites.binding.all.ls) + southAmerica, 
+                                           family = gaussian, data = amp704, method = "NCV")$fitted
+
+parscore2.pred704 <- mgcv::gam(parscore2.ls ~ s(parscore1.ls) + s(epitope.dist.c.ls) +
+                                           s(hdist.zspace.sites.binding.all.ls) + southAmerica, 
+                                           family = gaussian, data = amp704, method = "NCV")$fitted
+
+epitope.pred704 <- mgcv::gam(epitope.dist.c.ls ~ s(parscore1.ls) + s(parscore2.ls) +
+                                            s(hdist.zspace.sites.binding.all.ls) + southAmerica, 
+                                            family = gaussian, data = amp704, method = "NCV")$fitted
+
+hdist.pred704 <- mgcv::gam(hdist.zspace.sites.binding.all.ls ~ s(parscore1.ls) + s(parscore2.ls) +
+                                            s(epitope.dist.c.ls) + southAmerica, 
+                                            family = gaussian, data = amp704, method = "NCV")$fitted
+
+
+parscore1.ccor.704 <- cor(amp704$parscore1.ls - parscore1.pred704,  
+                          amp704$tx_bin - fit704.noparscore1)
+parscore2.ccor.704 <- cor(amp704$parscore2.ls - parscore2.pred704,  
+                          amp704$tx_bin - fit704.noparscore2)
+epitope.ccor.704 <- cor(amp704$epitope.dist.c.ls - epitope.pred704,  
+                        amp704$tx_bin - fit704.noepitope)
+hdist.ccor.704 <- cor(amp704$hdist.zspace.sites.binding.all.ls - hdist.pred704,  
+                        amp704$tx_bin - fit704.nohdist)
+
+parscore1.ccor.704.p <- cor.test(amp704$parscore1.ls - parscore1.pred704,  
+                                 amp704$tx_bin - fit704.noparscore1)$p.value
+parscore2.ccor.704.p <- cor.test(amp704$parscore2.ls - parscore2.pred704,  
+                                 amp704$tx_bin - fit704.noparscore2)$p.value
+epitope.ccor.704.p <- cor.test(amp704$epitope.dist.c.ls - epitope.pred704,  
+                               amp704$tx_bin - fit704.noepitope)$p.value
+hdist.ccor.704.p <- cor.test(amp704$hdist.zspace.sites.binding.all.ls - hdist.pred704,  
+                             amp704$tx_bin - fit704.nohdist)$p.value
+```
+
+
+```{r Objective3A-results}
+tab <- matrix(NA, ncol = 3, nrow = 4)
+
+tab[,1] <- c("PAR Score (logit)", "PAR Score (pred IC 80)", "Epitope Dist",
+             "Hamming Dist")
+
+tab[1,2] <- paste0(signif(parscore1.ccor.703, 3), " (p = ",
+                   signif(parscore1.ccor.703.p, 3),  ")")
+tab[2,2] <- paste0(signif(parscore2.ccor.703, 3), " (p = ",
+                   signif(parscore2.ccor.703.p, 3),  ")")
+tab[3,2] <- paste0(signif(epitope.ccor.703, 3), " (p = ",
+                   signif(epitope.ccor.703.p, 3),  ")")
+tab[4,2] <- paste0(signif(hdist.ccor.703, 3), " (p = ",
+                   signif(hdist.ccor.703.p, 3),  ")")
+
+tab[1,3] <- paste0(signif(parscore1.ccor.704, 3), " (p = ",
+                   signif(parscore1.ccor.704.p, 3),  ")")
+tab[2,3] <- paste0(signif(parscore2.ccor.704, 3), " (p = ",
+                   signif(parscore2.ccor.704.p, 3),  ")")
+tab[3,3] <- paste0(signif(epitope.ccor.704, 3), " (p = ",
+                   signif(epitope.ccor.704.p, 3),  ")")
+tab[4,3] <- paste0(signif(hdist.ccor.704, 3), " (p = ",
+                   signif(hdist.ccor.704.p, 3),  ")")
+
+colnames(tab) <- c("Env AA Characteristic", "HVTN 703", "HVTN 704")
+
+kable(tab)
+```
+
+
+## Objective 3B: Assessment of conditional dependence of each Env AA feature with TX Assignment (including raw IC80)
+
+```{r Objective3B-703}
+fit703.noparscore1 <- predict(mgcv::gam(tx_bin ~ s(parscore2.ls) + s(epitope.dist.c.ls) +
+                                         s(hdist.zspace.sites.binding.all.ls) + s(gmt80ls_num) + southAfrica, 
+                              family = binomial, data = amp703, method = "NCV"),
+                              newdata = amp703, type = "response")
+fit703.noparscore2 <- predict(mgcv::gam(tx_bin ~ s(parscore1.ls) + s(epitope.dist.c.ls) +
+                                         s(hdist.zspace.sites.binding.all.ls) + s(gmt80ls_num) + southAfrica, 
+                              family = binomial, data = amp703, method = "NCV"),
+                              newdata = amp703, type = "response")
+fit703.noepitope <- predict(mgcv::gam(tx_bin ~ s(parscore1.ls) + s(parscore2.ls) +
+                                       s(hdist.zspace.sites.binding.all.ls) + s(gmt80ls_num) + southAfrica, 
+                                       family = binomial, data = amp703, method = "NCV"),
+                            newdata = amp703, type = "response")
+fit703.nohdist <- predict(mgcv::gam(tx_bin ~ s(parscore1.ls) + s(parscore2.ls) + s(epitope.dist.c.ls) +
+                                     s(gmt80ls_num) + southAfrica, 
+                                     family = binomial, data = amp703, method = "NCV"),
+                          newdata = amp703, type = "response")
+fit703.nogmt80 <- predict(mgcv::gam(tx_bin ~ s(parscore1.ls) + s(parscore2.ls) + s(epitope.dist.c.ls) +
+                                     s(hdist.zspace.sites.binding.all.ls) + southAfrica, 
+                                     family = binomial, data = amp703, method = "NCV"),
+                          newdata = amp703, type = "response")
+
+
+
+parscore1.pred703 <- predict(mgcv::gam(parscore1.ls ~ s(parscore2.ls) + s(epitope.dist.c.ls) +
+                                           s(hdist.zspace.sites.binding.all.ls) + s(gmt80ls_num) + southAfrica, 
+                                           family = gaussian, data = amp703, method = "NCV"),
+                             newdata = amp703)
+
+parscore2.pred703 <- predict(mgcv::gam(parscore2.ls ~ s(parscore1.ls) + s(epitope.dist.c.ls) +
+                                           s(hdist.zspace.sites.binding.all.ls) + s(gmt80ls_num) + southAfrica, 
+                                           family = gaussian, data = amp703, method = "NCV"),
+                             newdata = amp703)
+
+epitope.pred703 <- predict(mgcv::gam(epitope.dist.c.ls ~ s(parscore1.ls) + s(parscore2.ls) +
+                                            s(hdist.zspace.sites.binding.all.ls) + s(gmt80ls_num) + southAfrica, 
+                                            family = gaussian, data = amp703, method = "NCV"),
+                           newdata = amp703)
+
+hdist.pred703 <- predict(mgcv::gam(hdist.zspace.sites.binding.all.ls ~ s(parscore1.ls) + s(parscore2.ls) +
+                                            s(gmt80ls_num) + s(epitope.dist.c.ls) + southAfrica, 
+                                            family = gaussian, data = amp703, method = "NCV"),
+                        newdata = amp703)
+
+gmt80.pred703 <- predict(gam(gmt80ls_num ~ s(parscore1.ls) + s(parscore2.ls) +
+                                            s(hdist.zspace.sites.binding.all.ls) + s(epitope.dist.c.ls) + southAfrica, 
+                                            family = gaussian, data = amp703, method = "NCV"),
+                         newdata = amp703)
+
+
+parscore1.ccor.703 <- cor((amp703$parscore1.ls - parscore1.pred703)[!is.na(amp703$gmt80ls)],  
+                          (amp703$tx_bin - fit703.noparscore1)[!is.na(amp703$gmt80ls)])
+parscore2.ccor.703 <- cor((amp703$parscore2.ls - parscore2.pred703)[!is.na(amp703$gmt80ls)],  
+                          (amp703$tx_bin - fit703.noparscore2)[!is.na(amp703$gmt80ls)])
+epitope.ccor.703 <- cor((amp703$epitope.dist.c.ls - epitope.pred703)[!is.na(amp703$gmt80ls)],  
+                        (amp703$tx_bin - fit703.noepitope)[!is.na(amp703$gmt80ls)])
+hdist.ccor.703 <- cor((amp703$hdist.zspace.sites.binding.all.ls - hdist.pred703)[!is.na(amp703$gmt80ls)],  
+                      (amp703$tx_bin - fit703.nohdist)[!is.na(amp703$gmt80ls)])
+gmt80.ccor.703 <- cor((amp703$gmt80ls_num - gmt80.pred703)[!is.na(amp703$gmt80ls)],  
+                    (amp703$tx_bin - fit703.nogmt80)[!is.na(amp703$gmt80ls)])
+
+parscore1.ccor.703.p <- cor.test((amp703$parscore1.ls - parscore1.pred703)[!is.na(amp703$gmt80ls)],  
+                                 (amp703$tx_bin - fit703.noparscore1)[!is.na(amp703$gmt80ls)])$p.value
+parscore2.ccor.703.p <- cor.test((amp703$parscore2.ls - parscore2.pred703)[!is.na(amp703$gmt80ls)],  
+                                 (amp703$tx_bin - fit703.noparscore2)[!is.na(amp703$gmt80ls)])$p.value
+epitope.ccor.703.p <- cor.test((amp703$epitope.dist.c.ls - epitope.pred703)[!is.na(amp703$gmt80ls)],  
+                               (amp703$tx_bin - fit703.noepitope)[!is.na(amp703$gmt80ls)])$p.value
+hdist.ccor.703.p <- cor.test((amp703$hdist.zspace.sites.binding.all.ls - hdist.pred703)[!is.na(amp703$gmt80ls)],  
+                             (amp703$tx_bin - fit703.nohdist)[!is.na(amp703$gmt80ls)])$p.value
+gmt80.ccor.703.p <- cor.test((amp703$gmt80ls_num - gmt80.pred703)[!is.na(amp703$gmt80ls)],  
+                           (amp703$tx_bin - fit703.nogmt80)[!is.na(amp703$gmt80ls)])$p.value
+```
+
+```{r Objective3B-704}
+fit704.noparscore1 <- predict(mgcv::gam(tx_bin ~ s(parscore2.ls) + s(epitope.dist.c.ls) +
+                                         s(hdist.zspace.sites.binding.all.ls) + s(gmt80ls_num) + southAmerica, 
+                              family = binomial, data = amp704, method = "NCV"),
+                              newdata = amp704, type = "response")
+fit704.noparscore2 <- predict(mgcv::gam(tx_bin ~ s(parscore1.ls) + s(epitope.dist.c.ls) +
+                                         s(hdist.zspace.sites.binding.all.ls) + s(gmt80ls_num) + southAmerica, 
+                              family = binomial, data = amp704, method = "NCV"),
+                              newdata = amp704, type = "response")
+fit704.noepitope <- predict(mgcv::gam(tx_bin ~ s(parscore1.ls) + s(parscore2.ls) +
+                                       s(hdist.zspace.sites.binding.all.ls) + s(gmt80ls_num) + southAmerica, 
+                                       family = binomial, data = amp704, method = "NCV"),
+                            newdata = amp704, type = "response")
+
+fit704.nohdist <- predict(mgcv::gam(tx_bin ~ s(parscore1.ls) + s(parscore2.ls) + s(epitope.dist.c.ls) +
+                                     s(gmt80ls_num) + southAmerica, 
+                                     family = binomial, data = amp704, method = "NCV"),
+                          newdata = amp704, type = "response")
+fit704.nogmt80 <- predict(mgcv::gam(tx_bin ~ s(parscore1.ls) + s(parscore2.ls) + s(epitope.dist.c.ls) +
+                                     s(hdist.zspace.sites.binding.all.ls) + southAmerica, 
+                                     family = binomial, data = amp704, method = "NCV"),
+                          newdata = amp704, type = "response")
+
+
+
+parscore1.pred704 <- predict(mgcv::gam(parscore1.ls ~ s(parscore2.ls) + s(epitope.dist.c.ls) +
+                                           s(hdist.zspace.sites.binding.all.ls) + s(gmt80ls_num) + southAmerica, 
+                                           family = gaussian, data = amp704, method = "NCV"),
+                             newdata = amp704)
+
+parscore2.pred704 <- predict(mgcv::gam(parscore2.ls ~ s(parscore1.ls) + s(epitope.dist.c.ls) +
+                                           s(hdist.zspace.sites.binding.all.ls) + s(gmt80ls_num) + southAmerica, 
+                                           family = gaussian, data = amp704, method = "NCV"),
+                             newdata = amp704)
+
+epitope.pred704 <- predict(mgcv::gam(epitope.dist.c.ls ~ s(parscore1.ls) + s(parscore2.ls) +
+                                            s(hdist.zspace.sites.binding.all.ls) + s(gmt80ls_num) + southAmerica, 
+                                            family = gaussian, data = amp704, method = "NCV"),
+                           newdata = amp704)
+
+hdist.pred704 <- predict(mgcv::gam(hdist.zspace.sites.binding.all.ls ~ s(parscore1.ls) + s(parscore2.ls) +
+                                            s(gmt80ls_num) + s(epitope.dist.c.ls) + southAmerica, 
+                                            family = gaussian, data = amp704, method = "NCV"),
+                        newdata = amp704)
+
+gmt80.pred704 <- predict(gam(gmt80ls_num ~ s(parscore1.ls) + s(parscore2.ls) +
+                                            s(hdist.zspace.sites.binding.all.ls) + s(epitope.dist.c.ls) +                                                     southAmerica, 
+                                            family = gaussian, data = amp704, method = "NCV"),
+                         newdata = amp704)
+
+
+parscore1.ccor.704 <- cor((amp704$parscore1.ls - parscore1.pred704)[!is.na(amp704$gmt80ls)],  
+                          (amp704$tx_bin - fit704.noparscore1)[!is.na(amp704$gmt80ls)])
+parscore2.ccor.704 <- cor((amp704$parscore2.ls - parscore2.pred704)[!is.na(amp704$gmt80ls)],  
+                          (amp704$tx_bin - fit704.noparscore2)[!is.na(amp704$gmt80ls)])
+epitope.ccor.704 <- cor((amp704$epitope.dist.c.ls - epitope.pred704)[!is.na(amp704$gmt80ls)],  
+                        (amp704$tx_bin - fit704.noepitope)[!is.na(amp704$gmt80ls)])
+hdist.ccor.704 <- cor((amp704$hdist.zspace.sites.binding.all.ls - hdist.pred704)[!is.na(amp704$gmt80ls)],  
+                      (amp704$tx_bin - fit704.nohdist)[!is.na(amp704$gmt80ls)])
+gmt80.ccor.704 <- cor((amp704$gmt80ls_num - gmt80.pred704)[!is.na(amp704$gmt80ls)],  
+                    (amp704$tx_bin - fit704.nogmt80)[!is.na(amp704$gmt80ls)])
+
+parscore1.ccor.704.p <- cor.test((amp704$parscore1.ls - parscore1.pred704)[!is.na(amp704$gmt80ls)],  
+                                 (amp704$tx_bin - fit704.noparscore1)[!is.na(amp704$gmt80ls)])$p.value
+parscore2.ccor.704.p <- cor.test((amp704$parscore2.ls - parscore2.pred704)[!is.na(amp704$gmt80ls)],  
+                                 (amp704$tx_bin - fit704.noparscore2)[!is.na(amp704$gmt80ls)])$p.value
+epitope.ccor.704.p <- cor.test((amp704$epitope.dist.c.ls - epitope.pred704)[!is.na(amp704$gmt80ls)],  
+                               (amp704$tx_bin - fit704.noepitope)[!is.na(amp704$gmt80ls)])$p.value
+hdist.ccor.704.p <- cor.test((amp704$hdist.zspace.sites.binding.all.ls - hdist.pred704)[!is.na(amp704$gmt80ls)],  
+                             (amp704$tx_bin - fit704.nohdist)[!is.na(amp704$gmt80ls)])$p.value
+gmt80.ccor.704.p <- cor.test((amp704$gmt80ls_num - gmt80.pred704)[!is.na(amp704$gmt80ls)],  
+                           (amp704$tx_bin - fit704.nogmt80)[!is.na(amp704$gmt80ls)])$p.value
+```
+
+
+```{r Objective3B-results}
+tab <- matrix(NA, ncol = 3, nrow = 5)
+
+tab[,1] <- c("PAR Score (logit)", "PAR Score (pred IC 80)", "Epitope Dist",
+             "Hamming Dist", "Raw IC80")
+
+tab[1,2] <- paste0(signif(parscore1.ccor.703, 3), " (p = ",
+                   signif(parscore1.ccor.703.p, 3),  ")")
+tab[2,2] <- paste0(signif(parscore2.ccor.703, 3), " (p = ",
+                   signif(parscore2.ccor.703.p, 3),  ")")
+tab[3,2] <- paste0(signif(epitope.ccor.703, 3), " (p = ",
+                   signif(epitope.ccor.703.p, 3),  ")")
+tab[4,2] <- paste0(signif(hdist.ccor.703, 3), " (p = ",
+                   signif(hdist.ccor.703.p, 3),  ")")
+tab[5,2] <- paste0(signif(gmt80.ccor.703, 3), " (p = ",
+                   signif(gmt80.ccor.703.p, 3),  ")")
+
+tab[1,3] <- paste0(signif(parscore1.ccor.704, 3), " (p = ",
+                   signif(parscore1.ccor.704.p, 3),  ")")
+tab[2,3] <- paste0(signif(parscore2.ccor.704, 3), " (p = ",
+                   signif(parscore2.ccor.704.p, 3),  ")")
+tab[3,3] <- paste0(signif(epitope.ccor.704, 3), " (p = ",
+                   signif(epitope.ccor.704.p, 3),  ")")
+tab[4,3] <- paste0(signif(hdist.ccor.704, 3), " (p = ",
+                   signif(hdist.ccor.704.p, 3),  ")")
+tab[5,3] <- paste0(signif(gmt80.ccor.704, 3), " (p = ",
+                   signif(gmt80.ccor.704.p, 3),  ")")
+
+colnames(tab) <- c("Env AA Characteristic", "HVTN 703", "HVTN 704")
+
+kable(tab)
+```
+
+```{r}
+# marg.glm.703 <- glm(tx_bin ~ parscore1.ls + epitope.dist.c.ls + hdist.zspace.sites.binding.all.ls + 
+#                epitope.dist.c.ls + southAfrica, 
+#                family = binomial, data = amp703)
+# 
+# marg.glm.704 <- glm(tx_bin ~ parscore1.ls + epitope.dist.c.ls + hdist.zspace.sites.binding.all.ls + 
+#                epitope.dist.c.ls + southAmerica, 
+#                family = binomial, data = amp704)
+# 
+# glm.703 <- glm(tx_bin ~ parscore1.ls + epitope.dist.c.ls + hdist.zspace.sites.binding.all.ls + 
+#                epitope.dist.c.ls + gmt80ls_num + southAfrica, 
+#                family = binomial, data = amp703)
+# 
+# glm.704 <- glm(tx_bin ~ parscore1.ls + epitope.dist.c.ls + hdist.zspace.sites.binding.all.ls + 
+#                epitope.dist.c.ls + gmt80ls_num + southAmerica, 
+#                family = binomial, data = amp704)
+```

@@ -1,0 +1,377 @@
+---
+title: "AMP DRTMLE sieve results"
+author: "Allan deCamp"
+date: "`r Sys.Date()`"
+output: pdf_document
+header-includes:
+    - \usepackage{caption}
+---
+
+\captionsetup[table]{labelformat=empty}
+
+```{r setup, include=FALSE}
+library(drtmle)
+library(tidyverse)
+library(xtable)
+library(kableExtra)
+
+# setting the project home directory path in the Windows format for each user
+user = ifelse(.Platform$OS.type == "unix", Sys.getenv("USER"), Sys.getenv("USERNAME"))
+
+if (user=="adecamp"){
+  homeDir = "/Users/adecamp/Repo/CoVPN/sieve_reporting"
+}
+
+knitr::opts_chunk$set(echo=FALSE, 
+                      message=FALSE, 
+                      warning=FALSE,
+                      fig.show="hold", 
+                      fig.align="center")
+# this line will evaluate R code in figure captions
+#knitr::opts_knit$set(eval.after="fig.cap")
+options(xtable.comment = FALSE)
+options(xtable.size = "normalsize")
+
+options(knitr.kable.NA = '-')
+
+```
+
+```{r constants, include=FALSE}
+mark_lookup = list(
+   "hxb2.230.pngs.ls" = 'PNGS at 230',
+   "parscore1.ls" = 'Pred Prob IC80 > 1 µg/ml',
+   "parscore2.ls" = 'Pred IC80',
+   "epitope.dist.any.ls" = 'Epitope Dist to Any Subtype Ref',
+   "epitope.dist.c.ls" = 'Epitope Dist to Subtype C Ref',
+   "epitope.dist.b.ls" = 'Epitope Dist to Subtype B Ref',
+   "hdist.zspace.sites.binding.all.ls" = 'PC-Weighted Hamming Dist',
+   "hdist.zspace.sites.preselect.all.ls" = 'PC-Weighted Hamming Dist preselect',
+   "hxb2.60.A.ls" = "AA position 60 (A vs. Not A)",
+   "hxb2.170.Q.ls" = "AA position 170 (Q vs. Not Q)", 
+   "hxb2.230.D.ls" = "AA position 230 (D vs. Not D)", 
+   "hxb2.279.N.ls" = "AA position 279 (N vs. Not N)", 
+   "hxb2.280.N.ls" = "AA position 280 (N vs. Not N)", 
+   "hxb2.317.F.ls" = "AA position 317 (F vs. Not F)", 
+   "hxb2.365.S.ls" = "AA position 365 (S vs. Not S)", 
+   "hxb2.429.E.ls" = "AA position 429 (E vs. Not E)", 
+   "hxb2.456.R.ls" = "AA position 456 (R vs. Not R)", 
+   "hxb2.458.G.ls" = "AA position 458 (G vs. Not G)", 
+   "hxb2.459.G.ls" = "AA position 459 (G vs. Not G)", 
+   "hxb2.471.G.ls" = "AA position 471 (G vs. Not G)", 
+   "hxb2.156.pngs.ls" = "AA position 156 (PNGS vs. Not PNGS)", 
+   "hxb2.229.pngs.ls" = "AA position 229 (PNGS vs. Not PNGS)", 
+   "hxb2.234.pngs.ls" = "AA position 234 (PNGS vs. Not PNGS)", 
+   "hxb2.616.pngs.ls" = "AA position 616 (PNGS vs. Not PNGS)", 
+   "hxb2.824.pngs.ls" = "AA position 824 (PNGS vs. Not PNGS)",
+   "num.pngs.gp120.ls" = "Number of PNGS in gp120", 
+   "num.pngs.v1v2.ls" = "Number of PNGS in V1V2",
+   "num.pngs.v5.ls" = "Number of PNGS in V5 (>1 vs. <=1)", 
+   "num.cysteine.gp120.ls" = "Number of Cys in gp120 (>18 vs. <=18)", 
+   "length.gp120.ls" = "Length of gp120", 
+   "length.v1v2.ls" = "Length of V1V2", 
+   "length.v5.ls" = "Length of V5"
+)
+
+trial_lookup = list(
+  'HVTN 704' = 'HVTN 704/HPTN 085',
+  'HVTN 703' = 'HVTN 703/HPTN 081',
+  'Pooled' = 'Pooled'
+)
+
+dose_lookup = list(
+  'High' = '30 mg/kg',
+  'Low' = '10 mg/kg',
+  'Pooled' = 'Pooled'
+)
+```
+
+```{r process_data, include=FALSE}
+
+# load fits.drtmle data
+fp.rda = file.path('./data', 'drtmle_fits.rda')
+load(file = fp.rda)
+
+
+# generate a data frame for all relevant comparisons:
+# One fit (HVTN 703, dose groups pooled, hxb2.230.pngs.ls) returned a try-error so we do not have an estimate
+# exclude epitope distance results that do not match the trial level
+# restricting to 'ls' founders only
+df.all = c()
+
+for( trial in names(fits.drtmle) ) {
+  for( dose in names(fits.drtmle[[trial]]) ) {
+    for( m in names(fits.drtmle[[trial]][[dose]]) ) {
+      if( grepl('^epitope.dist.any', m) && trial!='Pooled' ) next
+      if( grepl('^epitope.dist.c', m)   && trial!='HVTN 703' ) next
+      if( grepl('^epitope.dist.b', m)   && trial!='HVTN 704' ) next
+      if( !grepl('.ls$', m) ) next
+      
+      fit = fits.drtmle[[trial]][[dose]][[m]]
+      nd = identical(fit, 'not done')
+      error = identical(is(fit), 'try-error')
+      
+      df.all = rbind(df.all, data.frame(trial = trial, dose=dose, group=c('1','0','Diff'), mark=m, nd, error))
+    }
+  }
+}
+df.all$order = 1:nrow(df.all)
+
+# collate successful drtmle results 
+df.out = c()
+
+for( trial in names(fits.drtmle) ) {
+  for( dose in names(fits.drtmle[[trial]]) ) {
+    for( m in names(fits.drtmle[[trial]][[dose]]) ) {
+  
+      fit = fits.drtmle[[trial]][[dose]][[m]]
+      if(identical(fit, 'not done') | identical(is(fit), 'try-error')) {
+        print(is(fit))
+        cat(trial, dose, m, '\n')
+        next
+      }
+
+      ci = rbind(
+        ci(fit)$drtmle,
+        ci(fit, contrast=c(1,-1))$drtmle
+      )
+      colnames(ci) = c('est','cil','ciu')
+      out = data.frame(ci)
+      out$group = c(1, 0, "Diff")
+      pval = wald_test(fit, contrast=c(1,-1))$drtmle[1,'pval']
+      out$pval = c(NA, NA, pval)
+      out$trial = trial
+      out$dose = dose
+      out$mark = m
+      out = out[,c('trial','dose','mark','group','est','cil','ciu','pval')]
+  
+      df.out = rbind(df.out, out)
+    }
+  }
+}
+
+# 
+
+# merge successful drtmle fits with relavant comparisons
+df.out = merge(df.all, df.out, all.x=TRUE)
+df.out = df.out[order(df.out$order), ]
+df.out$order = NULL
+
+# define sequence type
+df.out = df.out %>% mutate( seq_type = case_when(
+    grepl("mf$", mark) ~ "mf",
+    grepl("ms$", mark) ~ "ms",
+    grepl("ls$", mark) ~ "ls",
+    TRUE ~ "Unknown"
+  ))
+stopifnot(all(df.out$seq_type != "Unknown"))
+
+
+df.out %>% group_by(trial, dose, seq_type) %>% filter(grepl("^parscore1|^parscore2|^epitope.dist|^hdist", mark), group=='Diff') %>% mutate(n=n()) %>% select(n)
+
+
+# transform est, cil, and ciu columns for parscore marks 
+# parscore1 is logit transformed 
+# parscore2 is log10 transformed
+# use appropriate inverse transformations for the group means and
+# transform the 'Differences' to get an odds ratio for parscore1 and a ratio for parscore2
+df.out = df.out %>% mutate_at(
+  c('est', 'cil','ciu'),
+  ~case_when(
+    grepl('parscore1', mark) & (group != 'Diff') ~ exp(.)/(1+exp(.)),
+    grepl('parscore2', mark) & (group != 'Diff') ~ 10^.,
+    grepl('parscore1', mark) & (group == 'Diff') ~ exp(.), # odds ratio
+    grepl('parscore2', mark) & (group == 'Diff') ~ 10^., # ratio
+    TRUE ~ identity(.)
+  ) ) %>% mutate(
+    group_label = case_when(
+      grepl('parscore1', mark) & (group == 'Diff') ~ 'Odds Ratio',
+      grepl('parscore2', mark) & (group == 'Diff') ~ 'Ratio',
+      TRUE ~ identity(group)
+    )
+  )
+
+
+# get adjusted p-values for each trial, dose, and sequence type 
+df.pval = subset(df.out, group=='Diff', select=c('seq_type', 'dose', 'trial', 'mark','pval')) 
+df.adj  = df.pval %>%
+  filter(grepl('^parscore1|^parscore2|^epitope.dist|^hdist', mark)) %>%
+  group_by(seq_type, dose, trial) %>%
+  mutate(fwer = p.adjust(pval, 'holm'),
+         fdr  = p.adjust(pval, 'fdr'),
+         n_marks_adjusted = n())
+#stopifnot(all(df.adj$n_marks_adjusted==4))
+df.pval = merge(df.pval, df.adj, all.x = TRUE)
+
+# utility to format est and ci
+format_est_ci = function(est, cil, ciu, nd, error) {
+  if(nd) return('- (-,-)')
+  if(error) return('Unable to fit')
+     
+  at_least_2 = function(n) {
+    ifelse(abs(n) > 1, sprintf("%0.2f", n), sprintf("%0.2g", n))
+  }
+  sprintf("%s (%s, %s)", at_least_2(est), at_least_2(cil), at_least_2(ciu))
+}
+
+# format output
+df.format = df.out %>%
+  rowwise() %>%
+  mutate(
+    est.format = format_est_ci(est, cil, ciu, nd, error)
+  ) %>%
+  ungroup() %>%
+  mutate(
+    group_name = factor(group, levels=c(1,0,'Diff'), labels=c('VRC01', 'Plac.', 'Diff.'))
+  ) %>%
+  select(trial, dose,seq_type,mark,group_name,est.format) %>%
+  pivot_wider(
+    values_from = est.format,
+    names_from = 'group_name'
+  ) %>%
+  merge(df.pval, all.x=TRUE) %>%
+  mutate(
+    pval = ifelse(is.na(pval), '', sprintf("%0.2g", pval)),
+    fwer = ifelse(is.na(fwer), '', sprintf("%0.2g", fwer)),
+    fdr = ifelse(is.na(fdr), '', sprintf("%0.2g", fdr))) %>% 
+  select(trial, dose, seq_type, mark, VRC01, Plac., Diff., pval, fwer, fdr, n_marks_adjusted) %>%
+  arrange(seq_type, dose, trial, mark)
+```
+
+
+```{r dose_pooled_results_704, results='asis'}
+
+
+ss = subset(df.format, trial %in% c('HVTN 704') & dose=='Pooled',
+            select=c('trial','mark','VRC01','Plac.','Diff.', 'pval'))
+lines_at = c(0, cumsum(table(ss$trial)))
+ss$trial = factor(unlist(trial_lookup[ss$trial]), levels=unlist(trial_lookup))
+ss$mark = factor(unlist(mark_lookup[ss$mark]), levels=unlist(mark_lookup))
+ss = ss[order(ss$trial, ss$mark),]
+
+
+colnames(ss) = c("Trial", "Sequence Feature", "VRC01", "Placebo", "Difference", "P-value")
+rownames(ss) = NULL
+
+kbl(ss,
+    format = 'latex', longtable = FALSE, booktabs = TRUE,
+    linesep = "", escape = FALSE,
+    caption = "Table DRTMLE S1. Mean values of PE-discriminating sequence features of the predicted most resistant founders in primary endpoint cases separately in the dose-pooled VRC01 and placebo groups in HVTN 704/HPTN 085 (Americas trial), with the mean difference (pooled VRC01 minus placebo), estimated using a doubly robust targeted minimum loss-based estimation method. For the predicted probability of IC80 > 1 µg/ml, the mean difference is on the odds ratio scale. For the predicted IC80, geometric means and the geometric mean ratio are presented. 95\\% Wald confidence intervals are reported in parentheses. A two-sided Wald test p-value for the mean difference is reported. For binary marks, estimation was only performed for features with $\\ge$ 6 primary endpoints representing each feature level."
+  ) %>%
+  kable_styling(
+    font_size = 6,
+    latex_options = c("hold_position", "repeat_header")
+  )  %>% 
+  collapse_rows(1:2, latex_hline = 'full', headers_to_remove = 1:2,
+                row_group_label_position = 'stack')
+  
+```
+
+```{r dose_pooled_results_703, results='asis'}
+
+
+ss = subset(df.format, trial %in% c('HVTN 703') & dose=='Pooled',
+            select=c('trial','mark','VRC01','Plac.','Diff.', 'pval'))
+lines_at = c(0, cumsum(table(ss$trial)))
+ss$trial = factor(unlist(trial_lookup[ss$trial]), levels=unlist(trial_lookup))
+ss$mark = factor(unlist(mark_lookup[ss$mark]), levels=unlist(mark_lookup))
+ss = ss[order(ss$trial, ss$mark),]
+
+
+colnames(ss) = c("Trial", "Sequence Feature", "VRC01", "Placebo", "Difference", "P-value")
+rownames(ss) = NULL
+
+kbl(ss,
+    format = 'latex', longtable = FALSE, booktabs = TRUE,
+    linesep = "", escape = FALSE,
+    caption = "Table DRTMLE S2. Mean values of PE-discriminating sequence features of the predicted most resistant founders in primary endpoint cases separately in the dose-pooled VRC01 and placebo groups in HVTN 703/HPTN 081 (Africa trial), with the mean difference (pooled VRC01 minus placebo), estimated using a doubly robust targeted minimum loss-based estimation method. For the predicted probability of IC80 > 1 µg/ml, the mean difference is on the odds ratio scale. For the predicted IC80, geometric means and the geometric mean ratio are presented. 95\\% Wald confidence intervals are reported in parentheses. A two-sided Wald test p-value for the mean difference is reported.  For binary marks, estimation was only performed for features with $\\ge$ 6 primary endpoints representing each feature level."
+  ) %>%
+  kable_styling(
+    font_size = 6,
+    latex_options = c("hold_position", "repeat_header")
+  )  %>% 
+  collapse_rows(1:2, latex_hline = 'full', headers_to_remove = 1:2,
+                row_group_label_position = 'stack')
+  
+```
+
+```{r trial_pooled_results_high, results='asis'}
+
+
+ss = subset(df.format, trial=='Pooled' & dose=='High',
+            select=c('dose','mark','VRC01','Plac.','Diff.', 'pval'))
+ss$dose = factor(unlist(dose_lookup[ss$dose]), levels=unlist(dose_lookup))
+ss$mark = factor(unlist(mark_lookup[ss$mark]), levels=unlist(mark_lookup))
+ss = ss[order(ss$dose, ss$mark),]
+
+
+colnames(ss) = c("Dose", "Sequence Feature", "VRC01", "Placebo", "Difference", "P-Value")
+rownames(ss) = NULL
+
+kbl(ss,
+    format = 'latex', longtable = FALSE, booktabs = TRUE,
+    linesep = "", escape = FALSE,
+    caption = "Table DRTMLE S3. Mean values of PE-discriminating sequence features of the predicted most resistant founders in trial-pooled primary endpoint cases separately in the 30 mg/kg VRC01 and placebo groups, with the mean difference (individual VRC01 dose minus placebo), estimated using a doubly robust targeted minimum loss-based estimation method. For the predicted probability of IC80 > 1 µg/ml, the mean difference is on the odds ratio scale. For the predicted IC80, geometric means and the geometric mean ratio are presented. 95\\% Wald confidence intervals are reported in parentheses. A two-sided Wald test p-value for the mean difference is reported.  For binary marks, estimation was only performed for features with $\\ge$ 6 primary endpoints representing each feature level. The estimation method failed for the AA postion 456 mark."
+  ) %>%
+  kable_styling(
+    font_size = 6,
+    latex_options = c("hold_position", "repeat_header")
+  )  %>% 
+  collapse_rows(1:2, latex_hline = 'full', headers_to_remove = 1:2,
+                row_group_label_position = 'stack')
+  
+```
+
+```{r trial_pooled_results_low, results='asis'}
+
+
+ss = subset(df.format, trial=='Pooled' & dose=='Low',
+            select=c('dose','mark','VRC01','Plac.','Diff.','pval'))
+ss$dose = factor(unlist(dose_lookup[ss$dose]), levels=unlist(dose_lookup))
+ss$mark = factor(unlist(mark_lookup[ss$mark]), levels=unlist(mark_lookup))
+ss = ss[order(ss$dose, ss$mark),]
+
+
+colnames(ss) = c("Dose", "Sequence Feature", "VRC01", "Placebo", "Difference", "P-Value")
+rownames(ss) = NULL
+
+kbl(ss,
+    format = 'latex', longtable = FALSE, booktabs = TRUE,
+    linesep = "", escape = FALSE,
+    caption = "Table DRTMLE S4. Mean values of PE-discriminating sequence features of the predicted most resistant founders in trial-pooled primary endpoint cases separately in the 10 mg/kg VRC01 and placebo groups, with the mean difference (individual VRC01 dose minus placebo), estimated using a doubly robust targeted minimum loss-based estimation method. For the predicted probability of IC80 > 1 µg/ml, the mean difference is on the odds ratio scale. For the predicted IC80, geometric means and the geometric mean ratio are presented. 95\\% Wald confidence intervals are reported in parentheses. A two-sided Wald test p-value for the mean difference is reported. For binary marks, estimation was only performed for features with $\\ge$ 6 primary endpoints representing each feature level."
+  ) %>%
+  kable_styling(
+    font_size = 6,
+    latex_options = c("hold_position", "repeat_header")
+  )  %>% 
+  collapse_rows(1:2, latex_hline = 'full', headers_to_remove = 1:2,
+                row_group_label_position = 'stack')
+  
+```
+
+```{r pngs_results, results='asis'}
+# 
+# 
+# ss = subset(df.format, grepl('pngs', mark) & !(trial=='Pooled' & dose=='Pooled'),
+#             select=c('trial','dose','VRC01','Plac.','Diff.', 'pval'))
+# ss$dose = factor(unlist(dose_lookup[ss$dose]), levels=unlist(dose_lookup))
+# ss$trial = factor(unlist(trial_lookup[ss$trial]), levels=unlist(trial_lookup))
+# ss = ss[order(ss$trial, ss$dose),]
+# ss$pval = ifelse(ss$dose == 'Pooled', ss$pval, '--')  # Keep dose-pooled p-values; don't report dose-specific p-values
+# 
+# colnames(ss) = c("Trial", "Dose", "VRC01", "Placebo", "Difference", "P-value")
+# rownames(ss) = NULL
+# 
+# kbl(ss,
+#     format = 'latex', longtable = FALSE, booktabs = TRUE,
+#     linesep = "", escape = FALSE,
+#     caption = "Table Sxx. Probability of a PNGS at Env positions 230–232 in the predicted most resistant founder sequence in primary endpoint cases separately in the VRC01 and placebo groups, with the probability difference (VRC01 minus placebo), estimated using a doubly robust targeted minimum loss-based estimation method. 95\\% Wald confidence intervals in parentheses and a two-sided Wald test p-value for the probability difference is reported. Results are shown for dose-pooled VRC01 separately within the Americas (HVTN 704/HPTN 085) and the Africa (HVTN 703/HPTN 081) trial as well as for individual VRC01 doses pooling over both trials."
+#   ) %>%
+#   kable_styling(
+#     font_size = 6,
+#     latex_options = c("hold_position", "repeat_header")
+#   )  %>% 
+#   collapse_rows(1:2, latex_hline = 'full', headers_to_remove = 1:2,
+#                 row_group_label_position = 'identity')
+  
+```
+

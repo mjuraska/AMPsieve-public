@@ -1,0 +1,88 @@
+---
+title: "AMP_aa_dist_plots"
+author: "Brian Simpkins"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output:
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+rm(list=ls(all=TRUE))
+
+knitr::opts_chunk$set(echo=FALSE, message=FALSE, warning=FALSE, cache=FALSE)
+```
+
+```{r}
+library(ggpubr)
+library(RColorBrewer)
+library(gridExtra)
+
+
+# Brian's paths
+source("aa_dist_plotter_functions.R", local = knitr::knit_global())
+# read in sequence data
+seq_path <- "u:/bsimpkin/incoming/aa_alignment_uncollapsed_hvtn704"
+# read in treatment mapping
+seqMaster <- read.csv("u:/bsimpkin/AMP_data/seqmaster_26MAR2021_realTreatments.csv")
+# read in hxb2 mapping
+map <- read.table("u:/bsimpkin/incoming/hxb2_map.psv", sep="|", header=TRUE)
+
+# read in VRC01 sites
+VRC01sites <- read.delim("u:/bsimpkin/Site-Scanning/bsites_vrc01.dat", header=FALSE)$V1
+# read in CD4 sites
+CD4sites <- read.delim("u:/bsimpkin/Site-Scanning/bsites_cd4.dat", header=FALSE)$V1
+
+# set sites to selected important sites
+sites <- c(60,170,230,279,280,317,365,429,456,458,459,471)
+
+# sites <- c(144, 230)
+
+# load in the data
+seqData <- gatherSequences(seq_path)
+
+# clean up seqMaster
+seqMaster <- subset(seqMaster, protocol=='HVTN 704')
+seqMaster$pub_id <- sapply(seqMaster$pub_id, function(x){gsub('-', '_', x)})
+seqMaster <- seqMaster[order(seqMaster$pub_id),]
+seqMaster$tx <- factor(seqMaster$tx, levels=c("C3", "T1", "T2"), labels=c("Control", "VRC01 10mg/kg", "VRC01 30mg/kg"))
+
+# restrict to participants with sensitivity data
+seqMaster <- subset(seqMaster, statuswk80 == 1 & !is.na(gmt80ls))
+# subset seqData
+seqData <- subset(seqData, pubid %in% seqMaster$pub_id)
+
+```
+
+# Site distribution plot
+
+```{r, fig.width=8.5, fig.height=11, out.width='80%'}
+
+# get list of plots
+plots <- dist.plot.builder(sequenceData=seqData, sites=sites, map=map, seqMaster=seqMaster)
+
+# alternate backgrounds of the plots
+for(i in 1:length(plots)){
+  if(i%%2==1){
+    plots[[i]] <- plots[[i]] + theme(plot.background=element_rect(fill="grey85", color="grey85"))
+  }
+}
+
+# Give the first page a facet label by creating an empty plot and appending it to the beginning
+firstP <- ggplot(seqMaster, aes(x=pub_id, y=pub_id, fill=tx)) +
+  geom_col(aes(pub_id, NA), alpha=0) +
+  facet_grid(. ~ tx, scales='free', space="free", switch = 'x') +
+  theme_void() +
+  theme(legend.title=element_blank(), legend.text=element_blank(), strip.text=element_text(size=12, vjust=1),
+        plot.margin=margin(b=.1, t=-.5, unit='cm'), plot.background = element_rect(fill="grey99", color="grey99"),
+        axis.title.x = element_blank(), axis.line.x = element_blank(), axis.text.x = element_blank(), axis.ticks.x = element_blank())
+
+plots <- c(list(firstP), plots)
+
+# save them to an output file
+multi.page <- ggpubr::ggarrange(plotlist = plots, nrow = ceiling(length(plots)/1) , ncol = 1, align='v', heights=c(.3, rep(1, length(plots)-1)))
+ggpubr::ggexport(multi.page, filename = "figures/704_AAresidueBarPlot_neutAssocPos.pdf", width=8.5, height=11)
+
+# show plots
+multi.page
+
+```
