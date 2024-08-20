@@ -1,1 +1,1 @@
-*R* implementation of statistical analyses presented in the manuscript Juraska et al., "Prevention efficacy of the broadly neutralizing antibody VRC01 depends on HIV-1 envelope sequence features".
+*R* implementation of statistical analyses presented in Juraska et al., [Prevention efficacy of the broadly neutralizing antibody VRC01 depends on HIV-1 envelope sequence features](https://doi.org/10.1073/pnas.2308942121). Proc Natl Acad Sci U S A. 2024 Jan 23;121(4):e2308942121. doi: 10.1073/pnas.2308942121.
